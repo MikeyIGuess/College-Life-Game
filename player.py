@@ -2,91 +2,157 @@ import pygame
 from constants import *
 
 class Player:
-    def __init__(self, selected_major):  # Add selected_major parameter
+    def __init__(self, x, y, major): # Add 'major' parameter
+        self.x = x
+        self.y = y
+        self.rect = pygame.Rect(x, y, TILE_SIZE, TILE_SIZE)
+        self.color = RED
+        self.speed = PLAYER_SPEED
         self.energy = STARTING_ENERGY
         self.money = STARTING_MONEY
-        self.grades = {major: 3.0 for major in MAJORS}
-        self.friends = []
-        self.social_points = 0
-        self.x = WINDOW_WIDTH // 2
-        self.y = WINDOW_HEIGHT // 2
-        self.speed = 5
-        self.rect = pygame.Rect(self.x, self.y, 32, 32)
-        self.major = selected_major  # Use the selected major
-        self.facing = 'down'
-        self.moving = False
-        self.major_friends_goal = 0  # Track progress towards 5 friends
-        self.major_friends_needed = 5  # Goal to reach
+        # --- Change starting GPA to 2.0 ---
+        self.gpa = 2.0
+        # --- End Change ---
+        # --- Change starting social to 0 ---
+        self.social = 0 # Starting social points
+        # --- End Change ---
+        self.major = major
+        self.grades = {} # Initialize grades as an empty dictionary
+        self.schedule = {} # Player's class/activity schedule
+        self.current_job = None # Track current job
+        self.job_performance = 0 # Track job performance
+        self.clubs = [] # List of clubs joined
+        self.friends_count = 0 # Initialize friend count
 
-    def move(self, dx, dy):
-        new_x = self.x + dx * self.speed
-        new_y = self.y + dy * self.speed
+    def update(self, world, time_manager): # Added world and time_manager args
+        # Store previous position
+        prev_x, prev_y = self.x, self.y
         
-        # Keep player within strict map bounds
-        if 0 <= new_x <= MAP_WIDTH - self.rect.width:
-            self.x = new_x
-        if 0 <= new_y <= MAP_HEIGHT - self.rect.height:
-            self.y = new_y
-            
-        self.rect.x = self.x
-        self.rect.y = self.y
-        
-    def update(self, world, time_manager):
+        # Get keyboard input
         keys = pygame.key.get_pressed()
-        dx = keys[pygame.K_RIGHT] - keys[pygame.K_LEFT]
-        dy = keys[pygame.K_DOWN] - keys[pygame.K_UP]
         
-        if dx != 0 or dy != 0:
-            self.move(dx, dy)
-            self.moving = True
-            if dx > 0: self.facing = 'right'
-            elif dx < 0: self.facing = 'left'
-            elif dy > 0: self.facing = 'down'
-            elif dy < 0: self.facing = 'up'
+        # Move player based on key presses
+        if keys[pygame.K_w] or keys[pygame.K_UP]:
+            self.y -= self.speed
+        if keys[pygame.K_s] or keys[pygame.K_DOWN]:
+            self.y += self.speed
+        if keys[pygame.K_a] or keys[pygame.K_LEFT]:
+            self.x -= self.speed
+        if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
+            self.x += self.speed
+            
+        # Keep player within map bounds
+        self.x = max(0, min(self.x, MAP_WIDTH - 32))
+        self.y = max(0, min(self.y, MAP_HEIGHT - 32))
+        
+        # Update player rectangle
+        self.rect.topleft = (self.x, self.y)
+        
+        # Check for collisions with buildings
+        collision_detected = False
+        for location in world.locations.values():
+            if self.rect.colliderect(location.rect):
+                # Check if player is trying to enter through the entrance
+                is_at_entrance = (location.is_enterable and 
+                                 self.x + 16 > location.x + location.width//2 - 15 and
+                                 self.x + 16 < location.x + location.width//2 + 15 and
+                                 self.y + 16 > location.y + location.height - 20)
+                
+                # If not at entrance, mark collision
+                if not is_at_entrance:
+                    collision_detected = True
+        
+        # If collision detected and not at entrance, revert position
+        if collision_detected:
+            self.x, self.y = prev_x, prev_y
+            self.rect.topleft = (self.x, self.y)
+    
+    def update_interior(self, current_building):
+        # Store previous position
+        prev_x, prev_y = self.x, self.y
+        
+        # Get keyboard input
+        keys = pygame.key.get_pressed()
+        
+        # Move player based on key presses
+        if keys[pygame.K_w] or keys[pygame.K_UP]:
+            self.y -= self.speed
+        if keys[pygame.K_s] or keys[pygame.K_DOWN]:
+            self.y += self.speed
+        if keys[pygame.K_a] or keys[pygame.K_LEFT]:
+            self.x -= self.speed
+        if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
+            self.x += self.speed
+            
+        # Keep player within building bounds
+        self.x = max(50, min(self.x, WINDOW_WIDTH - 50))
+        self.y = max(100, min(self.y, WINDOW_HEIGHT - 50))
+        
+        # Update player rectangle
+        self.rect.topleft = (self.x, self.y)
+        
+        # Check for collisions with interior walls if they exist
+        if hasattr(current_building, 'interior_walls'):
+            # Store previous position in case of collision
+            prev_x, prev_y = self.x, self.y
+            
+            # Check collision with each wall
+            for wall in current_building.interior_walls:
+                if self.rect.colliderect(wall):
+                    # Collision detected, revert position
+                    self.x, self.y = prev_x, prev_y
+                    self.rect.topleft = (self.x, self.y)
+                    break
+    
+    def draw(self, screen, camera):
+        # Apply camera offset to get the player's drawing rectangle on the screen
+        player_rect_on_screen = camera.apply_rect(self.rect)
+
+        # Draw the player (e.g., as a circle) using the center of the *new* rectangle
+        # Ensure the center coordinates are integers for drawing
+        center_pos = (int(player_rect_on_screen.centerx), int(player_rect_on_screen.centery))
+        pygame.draw.circle(screen, BLUE, center_pos, 16) # Use the calculated rect's center
+
+    def draw_interior(self, screen):
+        # Draw player inside buildings (no camera offset)
+        # Ensure the coordinates are integers for drawing
+        # Assuming self.x/self.y represent the top-left, calculate center
+        # If self.x/self.y are already center, just use them. Adjust as needed.
+        center_x = int(self.rect.centerx)
+        center_y = int(self.rect.centery)
+        pygame.draw.circle(screen, BLUE, (center_x, center_y), 16)
+
+    def add_friend(self):
+        # Placeholder: Add friend to self.friends_list
+        self.friends_count += 1
+
+    def apply_job_effects(self, hours):
+        # Placeholder: Apply job effects
+        self.energy -= hours * self.speed
+
+    def join_club(self, club_name):
+        # Placeholder: Join club to self.clubs_list
+        self.clubs.append(club_name)
+
+    def calculate_gpa(self):
+        # Calculate overall GPA from self.grades
+        if self.grades:
+            # Calculate the average of all grades in the dictionary
+            self.gpa = sum(self.grades.values()) / len(self.grades)
+            # Clamp overall GPA just in case
+            self.gpa = max(0.0, min(4.0, self.gpa))
         else:
-            self.moving = False
+            # If no grades yet, keep the initial GPA or set a default
+            # self.gpa = 2.0 # Or keep the value set in __init__
+            pass # Keep initial GPA if no grades exist
+        return self.gpa # Return the calculated GPA
 
-    def draw(self, screen):
-        # Draw player as a colored circle with a direction indicator
-        pygame.draw.circle(screen, BLUE, (self.x + 16, self.y + 16), 16)
-        
-        # Draw direction indicator
-        indicator_pos = {
-            'right': (self.x + 24, self.y + 16),
-            'left': (self.x + 8, self.y + 16),
-            'down': (self.x + 16, self.y + 24),
-            'up': (self.x + 16, self.y + 8)
-        }
-        pygame.draw.circle(screen, RED, indicator_pos[self.facing], 4)
-
-    def study(self, subject):
-        if self.energy >= 30:  # Check if player has enough energy
-            self.energy -= 30
-            self.grades[subject] += 0.2  # Improve grades in the subject
-            self.social_points -= 5  # Studying reduces social points
-            
-    def work_part_time(self):
-        if self.energy >= 40:
-            self.energy -= 40
-            self.money += 30
-            self.social_points -= 3
-            
-    def tutor_students(self):
-        if self.energy >= 25 and any(grade >= 3.5 for grade in self.grades.values()):
-            self.energy -= 25
-            self.money += 40
-            self.social_points += 2
-
-    def interact_with_npc(self, npc):
-        if not npc.talked_today:
-            message = npc.interact(self)
-            if npc.major == self.major:
-                self.social_points += 10
-                self.major_friends_goal += 1
-                if self.major_friends_goal >= self.major_friends_needed:
-                    return f"Found a {npc.major} major! You've reached your goal of {self.major_friends_needed} friends!"
-                return f"Found a {npc.major} major! ({self.major_friends_goal}/{self.major_friends_needed} friends)"
-            else:
-                self.social_points -= 5
-                return f"They're a {npc.major} major. -5 points"
-        return "Already talked to this person today."
+    def update_grade(self, subject, change):
+        # Update a specific grade and recalculate GPA
+        if subject not in self.grades:
+            self.grades[subject] = 0.0 # Initialize if not present
+        self.grades[subject] += change
+        # Clamp grade between 0.0 and 4.0 (or your desired range)
+        self.grades[subject] = max(0.0, min(4.0, self.grades[subject]))
+        # Recalculate overall GPA
+        self.calculate_gpa() # Call the updated method

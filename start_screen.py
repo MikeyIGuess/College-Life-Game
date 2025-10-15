@@ -18,16 +18,16 @@ class StartScreen:
             "Robotics Engineering"
         ]
         self.controls_text = [
-            "Controls:",
+            "Contact the PSU Office of the Dean for Undergraduate",
+            "Education to ask for more in-person options.",
+            "Speak Up. Get involved. Make campus feel like campus again.",
             "Arrow Keys - Move",
-            "SPACE - Talk to people",
-            "E - Interact with locations",
+            "G - Interact",
+            "F - Enter Locations",
             "",
             "Goal:",
             "Find 5 friends in your major!",
-            "Match = +10 points",
-            "Mismatch = -5 points",
-            "Talk once per day per person",
+            "Keep your GPA High",
             "",
             "Press ENTER to start"
         ]
@@ -41,11 +41,7 @@ class StartScreen:
         title = font.render("Campus Connect", True, BLUE)
         title_rect = title.get_rect(center=(WINDOW_WIDTH//2, 50))
         self.screen.blit(title, title_rect)
-        
-        # Major selection
-        major_text = font.render("Choose Your Major:", True, BLACK)
-        major_rect = major_text.get_rect(center=(WINDOW_WIDTH//2, 150))
-        self.screen.blit(major_text, major_rect)
+
         
         # Display current major
         current = small_font.render(f"> {self.majors[self.selected_major]} <", True, BLUE)
@@ -60,6 +56,9 @@ class StartScreen:
             
     def handle_input(self, event):
         if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_f:  # Add F key handling
+                if self.selected_major:  # Only proceed if a major is selected
+                    return self.selected_major
             if event.key == pygame.K_LEFT:
                 self.selected_major = (self.selected_major - 1) % len(self.majors)
             elif event.key == pygame.K_RIGHT:

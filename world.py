@@ -1,87 +1,163 @@
 import pygame
-import random
-from constants import *
-from npc import NPC
+# --- Import MAP_WIDTH and MAP_HEIGHT ---
+from constants import * # Keep existing imports
+from constants import MAP_WIDTH, MAP_HEIGHT # Add this line
+# --- End Import ---
 from location import Location
+from npc import NPC # Make sure NPC is imported
+import random
+
+# --- Add a list of possible majors ---
+# --- Add POSSIBLE_MAJORS if not already defined or imported ---
+# Example:
+POSSIBLE_MAJORS = ["Computer Science", "Engineering", "Arts", "Business", "Science"]
+# --- End Add ---
 
 class World:
-    def __init__(self):
-        self.npcs = []
+    # Modify the __init__ signature to accept time_manager
+    def __init__(self, locations_data, time_manager):
         self.locations = {}
-        self.initialize_world()
-        self.academic_event_timer = 0
-        self.current_academic_event = None
-        
-    def initialize_world(self):
-        # Spread locations across the smaller map
-        locations_pos = {
-            "dorm": {"x": 100, "y": 100},
-            "classroom": {"x": 400, "y": 150},
-            "library": {"x": 700, "y": 200},
-            "cafeteria": {"x": 250, "y": 400},
-            "gym": {"x": 500, "y": 600},
-            "club_room": {"x": 900, "y": 500}
-        }
-        
-        # Create locations with proper sprites
-        for name, pos in locations_pos.items():
-            self.locations[name] = Location(name, pos["x"], pos["y"])
-            
-        # Create NPCs within smaller bounds
-        for _ in range(5):
-            x = random.randint(50, MAP_WIDTH - 82)
-            y = random.randint(50, MAP_HEIGHT - 82)
-            major = random.choice(MAJORS)
-            self.npcs.append(NPC(x, y, major))
-            
-    def generate_academic_event(self):
-        event_types = [
-            {"type": "Pop Quiz", "difficulty": 0.3},
-            {"type": "Midterm", "difficulty": 0.5},
-            {"type": "Project Due", "difficulty": 0.4},
-            {"type": "Final Exam", "difficulty": 0.7}
-        ]
-        return random.choice(event_types)
-        
-    def update(self, time_manager):
-        for npc in self.npcs:
-            npc.update(time_manager)
-            
-        # Handle academic events
-        if time_manager.hour >= 8 and time_manager.hour <= 16:  # School hours
-            if random.random() < 0.001 and not self.current_academic_event:  # Small chance each update
-                self.current_academic_event = self.generate_academic_event()
-                return f"Surprise! {self.current_academic_event['type']}!"
-                
-    def handle_academic_event(self, player):
-        if self.current_academic_event:
-            difficulty = self.current_academic_event['difficulty']
-            success_chance = (player.grades[player.major] / 4.0) - difficulty
-            
-            if random.random() < success_chance:
-                player.grades[player.major] += 0.1
-                self.current_academic_event = None
-                return f"You passed the {self.current_academic_event['type']}! GPA increased!"
+        for name, data in locations_data.items():
+            rect_obj = data['rect'] # Get the Rect object
+            self.locations[name] = Location(
+                name,
+                rect_obj.x, # Pass x
+                rect_obj.y, # Pass y
+                rect_obj.width, # Pass width
+                rect_obj.height, # Pass height
+                color=data.get('color', BLUE), # Pass color keyword argument
+                is_enterable=data.get('is_enterable', True), # Pass is_enterable keyword argument
+                interior_color=data.get('interior_color', (240, 240, 240)) # Pass interior_color keyword argument
+            )
+        # Store the time_manager reference
+        self.time_manager = time_manager
+        # --- Keep using a single list for all NPCs ---
+        self.all_npcs = []
+        self.spawn_npcs(5) # Initial spawn of 5 NPCs
+        # --- End change ---
+
+    def spawn_npcs(self, count):
+        """Spawns a specific number of NPCs, potentially inside or near buildings."""
+        self.all_npcs.clear() # Clear existing NPCs before spawning new ones
+        spawned_count = 0
+        max_attempts = count * 20 # Increased attempts slightly
+
+        spawnable_buildings = [loc for name, loc in self.locations.items() if name in ["HUB-Robeson Center", "Dorm Building", "IM Building", "Westgate Building", "Computer Lab 1", "Computer Lab 2"]] # Include more buildings if desired
+        all_buildings = list(self.locations.values()) # Get all building locations
+
+        attempts = 0
+        while spawned_count < count and attempts < max_attempts:
+            attempts += 1
+            npc_name = f"Person {spawned_count + 1}" # Simple naming
+            npc_major = random.choice(POSSIBLE_MAJORS) # Assign a random major
+            dialogue = [f"Hi, I'm {npc_name}.", "Just wandering around."]
+
+            # --- Decide spawn location: 60% chance outside (near building), 40% inside ---
+            if random.random() < 0.6 or not spawnable_buildings: # Spawn outside near a building
+                # --- Spawn Outside (Near a Building) ---
+                if not all_buildings: continue # Skip if no buildings exist
+
+                valid_spawn = False
+                for _ in range(10): # Try 10 times to find a spot near a building
+                    target_building = random.choice(all_buildings)
+                    # Spawn within a radius around the building's center
+                    spawn_radius = max(target_building.width, target_building.height) * 1.5 # Adjust radius as needed
+                    offset_x = random.uniform(-spawn_radius, spawn_radius)
+                    offset_y = random.uniform(-spawn_radius, spawn_radius)
+                    x = target_building.rect.centerx + offset_x
+                    y = target_building.rect.centery + offset_y
+
+                    # Clamp coordinates to map bounds
+                    x = max(0, min(x, MAP_WIDTH - TILE_SIZE))
+                    y = max(0, min(y, MAP_HEIGHT - TILE_SIZE))
+
+                    temp_rect = pygame.Rect(x, y, TILE_SIZE, TILE_SIZE)
+
+                    # Check collision with ALL buildings
+                    collides_with_building = any(temp_rect.colliderect(loc.rect) for loc in all_buildings)
+
+                    if not collides_with_building:
+                        # Pass the assigned major to the NPC constructor
+                        npc = NPC(x, y, name=npc_name, dialogue=dialogue, major=npc_major)
+                        npc.current_location_name = None # Explicitly set as outside
+                        self.all_npcs.append(npc)
+                        spawned_count += 1
+                        valid_spawn = True
+                        break # Found a valid spot
+
+                if not valid_spawn:
+                    print(f"Warning: Could not find valid outdoor spawn point near a building for NPC {spawned_count + 1}")
+                # --- End Spawn Outside ---
             else:
-                player.grades[player.major] -= 0.2
-                self.current_academic_event = None
-                return f"You struggled with the {self.current_academic_event['type']}. GPA decreased..."
-            
+                # --- Spawn Inside (Existing Logic - Minor Refinements) ---
+                building = random.choice(spawnable_buildings)
+                # Ensure interior setup exists (using rect as a proxy for now)
+                if hasattr(building, 'rect'): # Basic check if building has dimensions
+                     valid_spawn = False
+                     for _ in range(10): # Try 10 times
+                         # Spawn within the building's main rectangle, slightly inset
+                         inset = TILE_SIZE // 2 # Small inset from edges
+                         min_x = building.rect.left + inset
+                         max_x = building.rect.right - TILE_SIZE - inset
+                         min_y = building.rect.top + inset
+                         max_y = building.rect.bottom - TILE_SIZE - inset
+
+                         if max_x > min_x and max_y > min_y: # Ensure valid range
+                             x = random.randint(min_x, max_x)
+                             y = random.randint(min_y, max_y)
+
+                             # TODO: Add collision check with interior walls/objects if necessary
+                             # For now, just spawn within the bounds
+
+                             # Pass the assigned major to the NPC constructor
+                             npc = NPC(x, y, name=npc_name, dialogue=dialogue, major=npc_major)
+                             npc.current_location_name = building.name # Assign building name
+                             self.all_npcs.append(npc)
+                             spawned_count += 1
+                             valid_spawn = True
+                             break # Found a spot
+                         else: # Fallback if building rect is too small
+                             print(f"Warning: Building {building.name} rect too small for indoor spawn.")
+                             break # Stop trying for this building
+
+                     if not valid_spawn:
+                         print(f"Warning: Could not find valid indoor spawn point in {building.name} for NPC {spawned_count + 1}")
+                else:
+                     print(f"Warning: Building {building.name} selected for indoor spawn, but has no defined rect.")
+                # --- End Spawn Inside ---
+
+        if spawned_count < count:
+            print(f"Warning: Only managed to spawn {spawned_count}/{count} NPCs after {max_attempts} attempts.")
+
+    # --- Add method to get NPCs in a specific building ---
+    def get_npcs_in_building(self, building_name):
+        """Returns a list of NPCs currently inside the specified building."""
+        return [npc for npc in self.all_npcs if npc.current_location_name == building_name]
+    # --- End Add ---
+
+    def respawn_npcs(self):
+        """Clears existing NPCs and spawns 5 new ones."""
+        print("Respawning NPCs for the new day...")
+        # --- Clear the single list ---
+        self.all_npcs.clear()
+        # --- End Change ---
+        self.spawn_npcs(5)
+
+    def update(self):
+        # Update NPCs that are outside
+        for npc in self.all_npcs:
+            if npc.current_location_name is None: # Only update world NPCs here
+                # Pass the stored time_manager to npc.update
+                npc.update(self.time_manager)
+        # Interior NPC updates will be handled by the Game class
+
     def draw(self, screen, camera):
-        # Draw locations with camera offset
+        # Draw locations
         for location in self.locations.values():
-            location_rect = camera.apply(location)
-            pygame.draw.rect(screen, location.color, location_rect)
-            
-            # Only draw text if location is on screen
-            if screen.get_rect().colliderect(location_rect):
-                font = pygame.font.Font(None, 20)
-                text = font.render(location.name, True, BLACK)
-                text_rect = text.get_rect(center=(location_rect.x + 32, location_rect.y + 32))
-                screen.blit(text, text_rect)
-        
-        # Draw NPCs with camera offset
-        for npc in self.npcs:
-            npc_rect = camera.apply(npc)
-            if screen.get_rect().colliderect(npc_rect):
-                pygame.draw.circle(screen, npc.color, (npc_rect.x + 16, npc_rect.y + 16), 16)
+            location.draw(screen, camera)
+
+        # Draw NPCs that are outside
+        for npc in self.all_npcs:
+             if npc.current_location_name is None: # Only draw world NPCs
+                npc.draw(screen, camera)
+        # Interior NPC drawing will be handled by the Game class
